@@ -1,0 +1,4 @@
+*.db
+*.iml
+*.xml
+test.go
