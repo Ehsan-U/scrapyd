@@ -1,12 +1,9 @@
 package controllers
 
 import (
-	"context"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"net/http"
-	"time"
-
 	"scrapyd/models"
 	"scrapyd/services"
 )
@@ -27,16 +24,15 @@ func ServerCreate(c *gin.Context) {
 		Name:    host.Name,
 		Address: host.Address,
 	}
-	dClient, err := services.NewDaemon(&server)
+	d, err := services.NewDaemon(&server)
 	if err != nil {
 		c.Error(err)
 		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
 	}
+	defer d.Client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	systemInfo, err := dClient.GetSystemInfo(ctx)
+	systemInfo, err := d.GetSystemInfo()
 	if err != nil {
 		c.Error(err)
 		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})

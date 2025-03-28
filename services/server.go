@@ -7,6 +7,7 @@ import (
 	"github.com/docker/docker/client"
 	"log"
 	"scrapyd/models"
+	"time"
 )
 
 type Daemon struct {
@@ -30,7 +31,9 @@ func NewDaemon(server *models.Server) (*Daemon, error) {
 	}, nil
 }
 
-func (d *Daemon) GetSystemInfo(ctx context.Context) (*system.Info, error) {
+func (d *Daemon) GetSystemInfo() (*system.Info, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	systemInfo, err := d.Client.Info(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get system info: %w", err)
@@ -38,9 +41,9 @@ func (d *Daemon) GetSystemInfo(ctx context.Context) (*system.Info, error) {
 	return &systemInfo, nil
 }
 
-func SetServerStatus(server *models.Server, status string) {
-	models.DB.Model(server).
-		Where("Id = ?", server.Id).
+func (d *Daemon) SetServerStatus(status string) {
+	models.DB.Model(d.Server).
+		Where("Id = ?", d.Server.Id).
 		Update("status", status)
-	log.Printf("server [%s] status changed: %s -> %s", server.Id, server.Status, status)
+	log.Printf("server [%s] status changed: %s -> %s", d.Server.Id, d.Server.Status, status)
 }
