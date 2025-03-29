@@ -19,6 +19,9 @@ func main() {
 	router.PATCH("/servers/:id", controllers.ServerUpdate)
 	router.DELETE("/servers/:id", controllers.ServerDelete)
 
+	// project CRUD
+	router.POST("/projects", controllers.ProjectCreate)
+
 	if err := router.Run(":8080"); err != nil {
 		log.Fatalf("server failed to start: %s", err)
 	}

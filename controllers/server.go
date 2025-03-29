@@ -20,11 +20,7 @@ func ServerCreate(c *gin.Context) {
 		return
 	}
 
-	server := models.Server{
-		Name:    host.Name,
-		Address: host.Address,
-	}
-	d, err := services.NewDaemon(&server)
+	d, err := services.NewDaemon(host.Address)
 	if err != nil {
 		c.Error(err)
 		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
@@ -39,12 +35,15 @@ func ServerCreate(c *gin.Context) {
 		return
 	}
 
-	server.Id = systemInfo.ID
-	server.Status = "up"
-	server.HostName = systemInfo.Name
-	server.CPU = systemInfo.NCPU
-	server.Memory = systemInfo.MemTotal
-
+	server := models.Server{
+		Id:       systemInfo.ID,
+		Name:     host.Name,
+		Address:  host.Address,
+		Status:   "up",
+		HostName: systemInfo.Name,
+		CPU:      systemInfo.NCPU,
+		Memory:   systemInfo.MemTotal,
+	}
 	result := models.DB.FirstOrCreate(&server)
 	if result.RowsAffected == 1 {
 		c.JSON(http.StatusCreated, gin.H{"message": "created"})
