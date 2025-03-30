@@ -42,7 +42,9 @@ func ZLogMiddleware() gin.HandlerFunc {
 
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	gin.DefaultWriter = zerolog.New(os.Stdout).With().Timestamp().Logger()
+	//gin.DefaultWriter = zerolog.New(os.Stdout).With().Timestamp().Logger()
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+	gin.DefaultWriter = zerolog.ConsoleWriter{Out: os.Stdout}
 	gin.SetMode("release")
 	router := gin.New()
 	router.Use(ZLogMiddleware(), gin.Recovery())

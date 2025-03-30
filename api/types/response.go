@@ -1,4 +1,4 @@
-package api
+package types
 
 type Response struct {
 	Status  string      `json:"status"`

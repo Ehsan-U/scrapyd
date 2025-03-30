@@ -12,10 +12,11 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/term"
 	"github.com/rs/zerolog/log"
 	"io"
-	"os"
 	"time"
 )
 
@@ -123,18 +124,16 @@ func (d *Daemon) ImageBuild(contextDir string, Dockerfile string, projectName st
 	}
 	defer reader.Body.Close()
 
-	//var stdout, stderr bytes.Buffer
-	if _, err = io.Copy(os.Stdout, reader.Body); err != nil {
+	var buildLogs bytes.Buffer
+	fd, _ := term.GetFdInfo(io.Discard)
+	err = jsonmessage.DisplayJSONMessagesStream(reader.Body, &buildLogs, fd, false, nil)
+	if err != nil {
 		log.Error().
 			Err(err).
 			Str("daemon", d.Address).
-			Msg("failed to build image")
+			Msg("failed to get image build logs")
 		return err
 	}
-	//stderrContent := stderr.String()
-	//if stderrContent != "" {
-	//	return fmt.Errorf("failed to build image:\n %s", stderrContent)
-	//}
 
 	return nil
 }
@@ -189,7 +188,7 @@ func (d *Daemon) ContainerWait(containerID string, cond container.WaitCondition)
 	return exitCode
 }
 
-func (d *Daemon) ContainerLogs(containerID string) (string, string, error) {
+func (d *Daemon) ContainerLogs(containerID string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	reader, err := d.Client.ContainerLogs(
@@ -205,18 +204,18 @@ func (d *Daemon) ContainerLogs(containerID string) (string, string, error) {
 			Err(err).
 			Str("daemon", d.Address).
 			Msg("failed to get container logs")
-		return "", "", err
+		return "", err
 	}
 	defer reader.Close()
-	var stdout, stderr bytes.Buffer
-	if _, err = stdcopy.StdCopy(&stdout, &stderr, reader); err != nil {
+	var stdout bytes.Buffer
+	if _, err = stdcopy.StdCopy(&stdout, io.Discard, reader); err != nil {
 		log.Error().
 			Err(err).
 			Str("daemon", d.Address).
-			Msg("failed to get container logs")
-		return "", "", err
+			Msg("failed to read container logs")
+		return "", err
 	}
-	return stdout.String(), stderr.String(), nil
+	return stdout.String(), nil
 }
 
 func (d *Daemon) ContainerRemove(containerID string, options container.RemoveOptions) error {
@@ -255,7 +254,7 @@ func (d *Daemon) SpiderList(projectName string) ([]string, error) {
 
 	exitCode := d.ContainerWait(containerID, container.WaitConditionNotRunning)
 	if exitCode == 0 {
-		stdout, _, err := d.ContainerLogs(containerID)
+		stdout, err := d.ContainerLogs(containerID)
 		if err != nil {
 			return nil, err
 		}
