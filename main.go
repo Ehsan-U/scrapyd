@@ -1,20 +1,17 @@
 package main
 
 import (
+	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"os"
+	"scrapyd/api/errs"
+	"scrapyd/api/types"
 	"scrapyd/controllers"
 	"scrapyd/models"
 	"time"
 )
-
-type Response struct {
-	Status  string      `json:"status"`
-	Data    interface{} `json:"data,omitempty"`
-	Message string      `json:"message,omitempty"`
-}
 
 func ZLogMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -22,21 +19,32 @@ func ZLogMiddleware() gin.HandlerFunc {
 		c.Next()
 		latency := time.Since(startTime)
 		status := c.Writer.Status()
+
 		if len(c.Errors) != 0 {
-			err := c.Errors.Last()
-			log.Error().
-				Int("status", status).
-				Err(err).
-				Msg("")
-		} else {
-			log.Debug().
-				Int("status", status).
-				Dur("latency", latency).
-				Str("ip", c.ClientIP()).
-				Str("method", c.Request.Method).
-				Str("path", c.Request.URL.Path).
-				Msg("")
+			err := c.Errors.Last().Err
+			log.Error().Err(err).Msg("")
+
+			if !c.Writer.Written() {
+				for knownErr, statusCode := range errs.ErrStatusMap {
+					if errors.Is(err, knownErr) {
+						c.AbortWithStatusJSON(statusCode, types.Response{
+							Status:  "error",
+							Message: knownErr.Error(),
+						})
+						break
+					}
+				}
+			}
+
 		}
+
+		log.Debug().
+			Int("status", status).
+			Dur("latency", latency).
+			Str("ip", c.ClientIP()).
+			Str("method", c.Request.Method).
+			Str("path", c.Request.URL.Path).
+			Msg("")
 	}
 }
 

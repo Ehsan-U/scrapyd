@@ -8,7 +8,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"net/http"
 	"os"
-	"scrapyd/api"
+	"scrapyd/api/errs"
+	"scrapyd/api/types"
 	"scrapyd/services"
 )
 
@@ -26,10 +27,7 @@ func ProjectCreate(c *gin.Context) {
 	}
 
 	if !urlutil.IsGitURL(gProject.Url) {
-		c.JSON(http.StatusUnprocessableEntity, api.Response{
-			Status:  "error",
-			Message: "please provide a valid git url",
-		})
+		c.Error(errs.ErrInvalidGitUrl)
 		return
 	}
 
@@ -39,44 +37,46 @@ func ProjectCreate(c *gin.Context) {
 		log.Error().
 			Err(err).
 			Msg("failed to get context from git url")
-		c.JSON(http.StatusNotFound, api.Response{
-			Status:  "error",
-			Message: "please ensure git project contains a dockerfile",
-		})
+		c.Error(errs.ErrInvalidDockerfile)
 		return
 	}
 	defer os.RemoveAll(tempDir)
 
 	d, err := services.NewDaemon("localhost")
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, api.Response{
-			Status:  "error",
-			Message: "docker daemon not available on localhost",
-		})
+		c.Error(errs.ErrDaemonConnectionFailed)
 		return
 	}
-	imageID := d.ImageIDByName(gProject.Name)
+
+	imageName := gProject.Name + ":latest"
+	imageID, err := d.ImageIDByName(imageName)
+	if err != nil {
+		c.Error(errs.ErrDaemonNotResponding)
+		return
+	}
 	if imageID != "" {
-		d.ImageRemove(imageID)
+		if err = d.ImageRemove(imageID); err != nil {
+			c.Error(errs.ErrDaemonNotResponding)
+			return
+		}
 	}
 	err = d.ImageBuild(tempDir, relDockerfile, gProject.Name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, api.Response{
+		c.JSON(http.StatusUnprocessableEntity, types.Response{
 			Status:  "error",
-			Message: "invalid dockerfile",
+			Data:    err.Error(),
+			Message: errs.ErrInvalidDockerfile.Error(),
 		})
 		return
 	}
 
-	// get the spiders
 	_, err = d.SpiderList(gProject.Name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, api.Response{
-			Status:  "error",
-			Message: "no spiders found in scrapy project",
-		})
+		c.Error(errs.ErrSpidersNotFound)
+		return
 	}
-	c.JSON(http.StatusCreated, api.Response{
+
+	c.JSON(http.StatusCreated, types.Response{
 		Status:  "success",
 		Message: "created",
 	})

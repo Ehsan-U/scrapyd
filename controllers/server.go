@@ -1,10 +1,10 @@
 package controllers
 
 import (
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"net/http"
+	"scrapyd/api/errs"
 	"scrapyd/api/types"
 	"scrapyd/models"
 	"scrapyd/services"
@@ -24,20 +24,14 @@ func ServerCreate(c *gin.Context) {
 
 	d, err := services.NewDaemon(host.Address)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, types.Response{
-			Status:  "error",
-			Message: fmt.Sprintf("docker daemon not available on %s", host.Address),
-		})
+		c.Error(errs.ErrDaemonConnectionFailed)
 		return
 	}
 	defer d.Client.Close()
 
 	systemInfo, err := d.GetSystemInfo()
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, types.Response{
-			Status:  "error",
-			Message: "server cannot be added",
-		})
+		c.Error(errs.ErrDaemonNotResponding)
 		return
 	}
 
@@ -80,10 +74,7 @@ func ServerUpdate(c *gin.Context) {
 	id := c.Params.ByName("id")
 	err := models.DB.First(&existingServer, "Id = ?", id).Error
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusNotFound, types.Response{
-			Status:  "error",
-			Message: "server not found",
-		})
+		c.Error(errs.ErrServerNotFound)
 		return
 	}
 
@@ -108,10 +99,7 @@ func ServerGet(c *gin.Context) {
 	id := c.Params.ByName("id")
 	err := models.DB.First(&existingServer, "Id = ?", id).Error
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusNotFound, types.Response{
-			Status:  "error",
-			Message: "server not found",
-		})
+		c.Error(errs.ErrServerNotFound)
 		return
 	}
 
@@ -127,10 +115,7 @@ func ServerDelete(c *gin.Context) {
 	id := c.Params.ByName("id")
 	err := models.DB.First(&existingServer, "Id = ?", id).Error
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusNotFound, types.Response{
-			Status:  "error",
-			Message: "server not found",
-		})
+		c.Error(errs.ErrServerNotFound)
 		return
 	}
 

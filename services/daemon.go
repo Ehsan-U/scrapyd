@@ -17,6 +17,7 @@ import (
 	"github.com/moby/term"
 	"github.com/rs/zerolog/log"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -31,6 +32,7 @@ func NewDaemon(addr string) (*Daemon, error) {
 		client.WithHost(addr),
 		client.WithAPIVersionNegotiation(),
 	)
+
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -38,6 +40,7 @@ func NewDaemon(addr string) (*Daemon, error) {
 			Msg("failed to connect to docker daemon")
 		return nil, err
 	}
+
 	return &Daemon{
 		Address: addr,
 		Client:  c,
@@ -48,6 +51,7 @@ func (d *Daemon) GetSystemInfo() (*system.Info, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	systemInfo, err := d.Client.Info(ctx)
+
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -55,43 +59,51 @@ func (d *Daemon) GetSystemInfo() (*system.Info, error) {
 			Msg("failed to get system info")
 		return nil, err
 	}
+
 	return &systemInfo, nil
 }
 
-func (d *Daemon) ImageIDByName(projectName string) string {
-	imageName := projectName + ":latest"
+func (d *Daemon) ImageIDByName(imageName string) (string, error) {
 	imageFilters := filters.NewArgs()
 	imageFilters.Add("reference", imageName)
 
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
 	images, err := d.Client.ImageList(
-		context.Background(),
+		ctx,
 		image.ListOptions{Filters: imageFilters},
 	)
+
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("daemon", d.Address).
 			Msg("failed to get image id")
-		return ""
+		return "", err
 	}
 	if len(images) == 0 {
-		return ""
+		return "", nil
 	}
-	return images[0].ID
+
+	return images[0].ID, nil
 }
 
-func (d *Daemon) ImageRemove(imageID string) {
+func (d *Daemon) ImageRemove(imageID string) error {
 	_, err := d.Client.ImageRemove(
 		context.Background(),
 		imageID,
 		image.RemoveOptions{Force: true, PruneChildren: true},
 	)
+
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("daemon", d.Address).
 			Msg("failed to remove image")
+		return err
 	}
+
+	return nil
 }
 
 func (d *Daemon) ImageBuild(contextDir string, Dockerfile string, projectName string) error {
@@ -147,6 +159,7 @@ func (d *Daemon) ContainerCreate(containerName string, config *container.Config)
 		nil, nil, nil,
 		containerName,
 	)
+
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -154,6 +167,7 @@ func (d *Daemon) ContainerCreate(containerName string, config *container.Config)
 			Msg("failed to create container")
 		return "", err
 	}
+
 	return c.ID, nil
 }
 
@@ -165,6 +179,7 @@ func (d *Daemon) ContainerStart(containerID string) error {
 		containerID,
 		container.StartOptions{},
 	)
+
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -172,20 +187,24 @@ func (d *Daemon) ContainerStart(containerID string) error {
 			Msg("failed to start container")
 		return err
 	}
+
 	return nil
 }
 
-func (d *Daemon) ContainerWait(containerID string, cond container.WaitCondition) int64 {
+func (d *Daemon) ContainerWait(containerID string, cond container.WaitCondition) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	statusChan, _ := d.Client.ContainerWait(
+	statusChan, errChan := d.Client.ContainerWait(
 		ctx,
 		containerID,
 		cond,
 	)
 	result := <-statusChan
 	exitCode := result.StatusCode
-	return exitCode
+	if err := <-errChan; err != nil {
+		return exitCode, err
+	}
+	return exitCode, nil
 }
 
 func (d *Daemon) ContainerLogs(containerID string) (string, error) {
@@ -235,11 +254,52 @@ func (d *Daemon) ContainerRemove(containerID string, options container.RemoveOpt
 	return nil
 }
 
+func (d *Daemon) ContainerIDByName(containerName string) (string, error) {
+	conFilters := filters.NewArgs()
+	conFilters.Add("name", containerName)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+	containers, err := d.Client.ContainerList(
+		ctx,
+		container.ListOptions{
+			Filters: conFilters,
+		},
+	)
+
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to list containers")
+		return "", err
+	}
+	if len(containers) == 0 {
+		return "", nil
+	}
+
+	return containers[0].ID, nil
+}
+
 func (d *Daemon) SpiderList(projectName string) ([]string, error) {
 	imageName := projectName + ":latest"
 	containerName := projectName + "_container"
 
-	containerID, err := d.ContainerCreate(containerName, &container.Config{
+	containerID, err := d.ContainerIDByName(containerName)
+	if err != nil {
+		return nil, err
+	}
+	if containerID != "" {
+		if err := d.ContainerRemove(containerID, container.RemoveOptions{
+			Force:         true,
+			RemoveVolumes: true,
+			RemoveLinks:   false,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	containerID, err = d.ContainerCreate(containerName, &container.Config{
 		Image:      imageName,
 		Entrypoint: []string{"scrapy"},
 		Cmd:        []string{"list"},
@@ -252,13 +312,17 @@ func (d *Daemon) SpiderList(projectName string) ([]string, error) {
 		return nil, err
 	}
 
-	exitCode := d.ContainerWait(containerID, container.WaitConditionNotRunning)
+	exitCode, err := d.ContainerWait(containerID, container.WaitConditionNotRunning)
+	if err != nil {
+		return nil, err
+	}
 	if exitCode == 0 {
 		stdout, err := d.ContainerLogs(containerID)
-		if err != nil {
+		if err != nil || stdout == "" {
 			return nil, err
 		}
-		log.Printf(stdout)
+		spiders := strings.Split(stdout, "\n")
+		return spiders, nil
 	}
 
 	if err := d.ContainerRemove(containerID, container.RemoveOptions{
