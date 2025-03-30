@@ -3,22 +3,20 @@ package services
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/pkg/stdcopy"
-	"io"
-	"log"
-	"os"
-	"time"
-
 	"github.com/docker/cli/cli/command/image/build"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/system"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/rs/zerolog/log"
+	"io"
+	"os"
+	"time"
 )
 
 type Daemon struct {
@@ -33,7 +31,11 @@ func NewDaemon(addr string) (*Daemon, error) {
 		client.WithAPIVersionNegotiation(),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Docker daemon [%s]: %w", addr, err)
+		log.Error().
+			Err(err).
+			Str("daemon", addr).
+			Msg("failed to connect to docker daemon")
+		return nil, err
 	}
 	return &Daemon{
 		Address: addr,
@@ -46,7 +48,11 @@ func (d *Daemon) GetSystemInfo() (*system.Info, error) {
 	defer cancel()
 	systemInfo, err := d.Client.Info(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get system info: %w", err)
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to get system info")
+		return nil, err
 	}
 	return &systemInfo, nil
 }
@@ -60,7 +66,14 @@ func (d *Daemon) ImageIDByName(projectName string) string {
 		context.Background(),
 		image.ListOptions{Filters: imageFilters},
 	)
-	if err != nil || len(images) == 0 {
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to get image id")
+		return ""
+	}
+	if len(images) == 0 {
 		return ""
 	}
 	return images[0].ID
@@ -73,7 +86,10 @@ func (d *Daemon) ImageRemove(imageID string) {
 		image.RemoveOptions{Force: true, PruneChildren: true},
 	)
 	if err != nil {
-		log.Print(err)
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to remove image")
 	}
 }
 
@@ -99,13 +115,21 @@ func (d *Daemon) ImageBuild(contextDir string, Dockerfile string, projectName st
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to build image: %w", err)
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to build image")
+		return err
 	}
 	defer reader.Body.Close()
 
 	//var stdout, stderr bytes.Buffer
 	if _, err = io.Copy(os.Stdout, reader.Body); err != nil {
-		return fmt.Errorf("failed to build image:\n %w", err)
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to build image")
+		return err
 	}
 	//stderrContent := stderr.String()
 	//if stderrContent != "" {
@@ -125,7 +149,11 @@ func (d *Daemon) ContainerCreate(containerName string, config *container.Config)
 		containerName,
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to create container: %w", err)
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to create container")
+		return "", err
 	}
 	return c.ID, nil
 }
@@ -139,7 +167,11 @@ func (d *Daemon) ContainerStart(containerID string) error {
 		container.StartOptions{},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to start container: %w", err)
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to start container")
+		return err
 	}
 	return nil
 }
@@ -169,12 +201,20 @@ func (d *Daemon) ContainerLogs(containerID string) (string, string, error) {
 		},
 	)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to get container logs: %w", err)
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to get container logs")
+		return "", "", err
 	}
 	defer reader.Close()
 	var stdout, stderr bytes.Buffer
 	if _, err = stdcopy.StdCopy(&stdout, &stderr, reader); err != nil {
-		return "", "", fmt.Errorf("failed to get container logs: %w", err)
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to get container logs")
+		return "", "", err
 	}
 	return stdout.String(), stderr.String(), nil
 }
@@ -187,7 +227,11 @@ func (d *Daemon) ContainerRemove(containerID string, options container.RemoveOpt
 		containerID,
 		options,
 	); err != nil {
-		return fmt.Errorf("failed to remove container: %w", err)
+		log.Error().
+			Err(err).
+			Str("daemon", d.Address).
+			Msg("failed to remove container")
+		return err
 	}
 	return nil
 }

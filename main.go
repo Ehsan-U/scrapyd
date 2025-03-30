@@ -2,14 +2,51 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
-	"log"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"os"
 	"scrapyd/controllers"
 	"scrapyd/models"
+	"time"
 )
 
+type Response struct {
+	Status  string      `json:"status"`
+	Data    interface{} `json:"data,omitempty"`
+	Message string      `json:"message,omitempty"`
+}
+
+func ZLogMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		startTime := time.Now()
+		c.Next()
+		latency := time.Since(startTime)
+		status := c.Writer.Status()
+		if len(c.Errors) != 0 {
+			err := c.Errors.Last()
+			log.Error().
+				Int("status", status).
+				Err(err).
+				Msg("")
+		} else {
+			log.Debug().
+				Int("status", status).
+				Dur("latency", latency).
+				Str("ip", c.ClientIP()).
+				Str("method", c.Request.Method).
+				Str("path", c.Request.URL.Path).
+				Msg("")
+		}
+	}
+}
+
 func main() {
-	//gin.SetMode("release")
-	router := gin.Default()
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	gin.DefaultWriter = zerolog.New(os.Stdout).With().Timestamp().Logger()
+	gin.SetMode("release")
+	router := gin.New()
+	router.Use(ZLogMiddleware(), gin.Recovery())
+
 	models.ConnectDatabase()
 
 	// server CRUD
@@ -23,6 +60,6 @@ func main() {
 	router.POST("/projects", controllers.ProjectCreate)
 
 	if err := router.Run(":8080"); err != nil {
-		log.Fatalf("server failed to start: %s", err)
+		log.Fatal().Err(err).Msg("app failed to start")
 	}
 }
