@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"errors"
 	"github.com/docker/cli/cli/command/image/build"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -199,12 +200,16 @@ func (d *Daemon) ContainerWait(containerID string, cond container.WaitCondition)
 		containerID,
 		cond,
 	)
-	result := <-statusChan
-	exitCode := result.StatusCode
-	if err := <-errChan; err != nil {
-		return exitCode, err
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return -1, err
+		}
+	case status := <-statusChan:
+		return status.StatusCode, nil
 	}
-	return exitCode, nil
+
+	return -1, errors.New("timeout while waiting for container wait api call")
 }
 
 func (d *Daemon) ContainerLogs(containerID string) (string, error) {
@@ -282,24 +287,12 @@ func (d *Daemon) ContainerIDByName(containerName string) (string, error) {
 }
 
 func (d *Daemon) SpiderList(projectName string) ([]string, error) {
+	var spiders []string
+
 	imageName := projectName + ":latest"
 	containerName := projectName + "_container"
 
-	containerID, err := d.ContainerIDByName(containerName)
-	if err != nil {
-		return nil, err
-	}
-	if containerID != "" {
-		if err := d.ContainerRemove(containerID, container.RemoveOptions{
-			Force:         true,
-			RemoveVolumes: true,
-			RemoveLinks:   false,
-		}); err != nil {
-			return nil, err
-		}
-	}
-
-	containerID, err = d.ContainerCreate(containerName, &container.Config{
+	containerID, err := d.ContainerCreate(containerName, &container.Config{
 		Image:      imageName,
 		Entrypoint: []string{"scrapy"},
 		Cmd:        []string{"list"},
@@ -307,6 +300,14 @@ func (d *Daemon) SpiderList(projectName string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// cleanup
+	defer func() {
+		_ = d.ContainerRemove(containerID, container.RemoveOptions{
+			Force:         true,
+			RemoveVolumes: true,
+			RemoveLinks:   false,
+		})
+	}()
 
 	if err = d.ContainerStart(containerID); err != nil {
 		return nil, err
@@ -321,17 +322,14 @@ func (d *Daemon) SpiderList(projectName string) ([]string, error) {
 		if err != nil || stdout == "" {
 			return nil, err
 		}
-		spiders := strings.Split(stdout, "\n")
+		for _, spider := range strings.Split(stdout, "\n") {
+			if strings.TrimSpace(spider) != "" {
+				spiders = append(spiders, spider)
+			}
+		}
+
 		return spiders, nil
 	}
 
-	if err := d.ContainerRemove(containerID, container.RemoveOptions{
-		Force:         true,
-		RemoveVolumes: true,
-		RemoveLinks:   false,
-	}); err != nil {
-		return nil, err
-	}
-
-	return []string{}, nil
+	return spiders, nil
 }

@@ -17,8 +17,18 @@ type Host struct {
 
 func ServerCreate(c *gin.Context) {
 	var host Host
+	var server models.Server
 
 	if err := c.MustBindWith(&host, binding.JSON); err != nil {
+		return
+	}
+
+	// check DB
+	if err := models.DB.First(&server, "Address = ?", host.Address).Error; err == nil {
+		c.JSON(http.StatusOK, types.Response{
+			Status:  "success",
+			Message: "exists",
+		})
 		return
 	}
 
@@ -35,27 +45,25 @@ func ServerCreate(c *gin.Context) {
 		return
 	}
 
-	server := models.Server{
-		Id:       systemInfo.ID,
-		Name:     host.Name,
-		Address:  host.Address,
-		Status:   "up",
-		HostName: systemInfo.Name,
-		CPU:      systemInfo.NCPU,
-		Memory:   systemInfo.MemTotal,
-	}
-	result := models.DB.FirstOrCreate(&server)
-	if result.RowsAffected == 1 {
+	server.Id = systemInfo.ID
+	server.Name = host.Name
+	server.Address = host.Address
+	server.Status = "up"
+	server.HostName = systemInfo.Name
+	server.CPU = systemInfo.NCPU
+	server.Memory = systemInfo.MemTotal
+
+	if rows := models.DB.Create(&server).RowsAffected; rows == 0 {
 		c.JSON(http.StatusCreated, types.Response{
-			Status:  "success",
-			Message: "created",
-		})
-	} else {
-		c.JSON(http.StatusOK, types.Response{
 			Status:  "success",
 			Message: "exists",
 		})
+		return
 	}
+	c.JSON(http.StatusCreated, types.Response{
+		Status:  "success",
+		Message: "created",
+	})
 }
 
 func ServerList(c *gin.Context) {
