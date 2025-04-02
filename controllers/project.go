@@ -10,6 +10,7 @@ import (
 	"os"
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
+	"scrapyd/models"
 	"scrapyd/services"
 )
 
@@ -21,6 +22,7 @@ type GithubProject struct {
 
 func ProjectCreate(c *gin.Context) {
 	var gProject GithubProject
+	var project models.Project
 
 	if err := c.MustBindWith(&gProject, binding.JSON); err != nil {
 		return
@@ -28,6 +30,16 @@ func ProjectCreate(c *gin.Context) {
 
 	if !urlutil.IsGitURL(gProject.Url) {
 		c.Error(errs.ErrInvalidGitUrl)
+		return
+	}
+
+	// check DB first
+	if err := models.DB.First(&project, "Name = ?", gProject.Name).Error; err == nil {
+		c.JSON(http.StatusCreated, types.Response{
+			Status:  "success",
+			Data:    project.Spiders,
+			Message: "exists",
+		})
 		return
 	}
 
@@ -70,14 +82,21 @@ func ProjectCreate(c *gin.Context) {
 		return
 	}
 
-	_, err = d.SpiderList(gProject.Name)
+	spiders, err := d.SpiderList(gProject.Name)
 	if err != nil {
 		c.Error(errs.ErrSpidersNotFound)
 		return
 	}
 
+	project.Name = gProject.Name
+	project.Url = gProject.Url
+	project.Branch = gProject.Branch
+	project.Spiders = spiders
+
+	models.DB.Create(&project)
 	c.JSON(http.StatusCreated, types.Response{
 		Status:  "success",
+		Data:    spiders,
 		Message: "created",
 	})
 }

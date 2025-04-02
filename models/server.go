@@ -3,7 +3,7 @@ package models
 import "time"
 
 type Server struct {
-	Id        string `gorm:"primary-key"`
+	Id        string `gorm:"primaryKey"`
 	Name      string `gorm:"unique"`
 	Address   string `gorm:"unique"`
 	HostName  string
