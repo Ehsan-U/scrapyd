@@ -35,7 +35,6 @@ func ZLogMiddleware() gin.HandlerFunc {
 					}
 				}
 			}
-
 		}
 
 		log.Debug().
@@ -53,7 +52,7 @@ func main() {
 	//gin.DefaultWriter = zerolog.New(os.Stdout).With().Timestamp().Logger()
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 	gin.DefaultWriter = zerolog.ConsoleWriter{Out: os.Stdout}
-	gin.SetMode("release")
+	//gin.SetMode("release")
 	router := gin.New()
 	router.Use(ZLogMiddleware(), gin.Recovery())
 
@@ -68,6 +67,10 @@ func main() {
 
 	// project CRUD
 	router.POST("/projects", controllers.ProjectCreate)
+	router.GET("/projects", controllers.ProjectList)
+	router.GET("/projects/:id", controllers.ProjectGet)
+	router.PATCH("/projects/:id", controllers.ProjectUpdate)
+	router.DELETE("/projects/:id", controllers.ProjectDelete)
 
 	if err := router.Run(":8080"); err != nil {
 		log.Fatal().Err(err).Msg("app failed to start")

@@ -15,9 +15,50 @@ import (
 )
 
 type GithubProject struct {
-	Name   string `json:"name" binding:"required"`
-	Url    string `json:"url" binding:"required"`
-	Branch string `json:"branch"`
+	Name    string `json:"name" binding:"required"`
+	Url     string `json:"url" binding:"required"`
+	Branch  string `json:"branch"`
+	Version string `json:"version"`
+}
+
+func ExtractSpidersFromSource(project *models.Project) error {
+	absUrl := project.Url + "#" + project.Branch
+	tempDir, relDockerfile, err := build.GetContextFromGitURL(absUrl, "Dockerfile")
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("failed to get context from git url")
+		return errs.ErrInvalidDockerfile
+	}
+	defer os.RemoveAll(tempDir)
+
+	d, err := services.NewDaemon("localhost")
+	if err != nil {
+		return errs.ErrDaemonConnectionFailed
+	}
+
+	imageName := project.Name + ":latest"
+	imageID, err := d.ImageIDByName(imageName)
+	if err != nil {
+		return errs.ErrDaemonNotResponding
+	}
+	if imageID != "" {
+		if err = d.ImageRemove(imageID); err != nil {
+			return errs.ErrDaemonNotResponding
+		}
+	}
+	err = d.ImageBuild(tempDir, relDockerfile, project.Name)
+	if err != nil {
+		return errs.ErrInvalidDockerfile
+	}
+
+	spiders, err := d.SpiderList(project.Name)
+	if err != nil {
+		return errs.ErrSpidersNotFound
+	}
+	project.Spiders = spiders
+
+	return nil
 }
 
 func ProjectCreate(c *gin.Context) {
@@ -33,70 +74,108 @@ func ProjectCreate(c *gin.Context) {
 		return
 	}
 
-	// check DB first
+	// check DB
 	if err := models.DB.First(&project, "Name = ?", gProject.Name).Error; err == nil {
 		c.JSON(http.StatusCreated, types.Response{
 			Status:  "success",
-			Data:    project.Spiders,
 			Message: "exists",
 		})
-		return
-	}
-
-	gProject.Url = gProject.Url + "#" + gProject.Branch
-	tempDir, relDockerfile, err := build.GetContextFromGitURL(gProject.Url, "Dockerfile")
-	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("failed to get context from git url")
-		c.Error(errs.ErrInvalidDockerfile)
-		return
-	}
-	defer os.RemoveAll(tempDir)
-
-	d, err := services.NewDaemon("localhost")
-	if err != nil {
-		c.Error(errs.ErrDaemonConnectionFailed)
-		return
-	}
-
-	imageName := gProject.Name + ":latest"
-	imageID, err := d.ImageIDByName(imageName)
-	if err != nil {
-		c.Error(errs.ErrDaemonNotResponding)
-		return
-	}
-	if imageID != "" {
-		if err = d.ImageRemove(imageID); err != nil {
-			c.Error(errs.ErrDaemonNotResponding)
-			return
-		}
-	}
-	err = d.ImageBuild(tempDir, relDockerfile, gProject.Name)
-	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, types.Response{
-			Status:  "error",
-			Data:    err.Error(),
-			Message: errs.ErrInvalidDockerfile.Error(),
-		})
-		return
-	}
-
-	spiders, err := d.SpiderList(gProject.Name)
-	if err != nil {
-		c.Error(errs.ErrSpidersNotFound)
 		return
 	}
 
 	project.Name = gProject.Name
 	project.Url = gProject.Url
 	project.Branch = gProject.Branch
-	project.Spiders = spiders
+	if gProject.Version == "" {
+		project.Version = "0.0.1"
+	} else {
+		project.Version = gProject.Version
+	}
+
+	if err := ExtractSpidersFromSource(&project); err != nil {
+		c.Error(err)
+		return
+	}
 
 	models.DB.Create(&project)
 	c.JSON(http.StatusCreated, types.Response{
 		Status:  "success",
-		Data:    spiders,
 		Message: "created",
+	})
+}
+
+func ProjectList(c *gin.Context) {
+	var projects []models.Project
+
+	models.DB.Find(&projects)
+	c.JSON(http.StatusOK, types.Response{
+		Status: "success",
+		Data:   projects,
+	})
+}
+
+func ProjectGet(c *gin.Context) {
+	var project models.Project
+
+	id := c.Params.ByName("id")
+	if err := models.DB.First(&project, "Id = ?", id).Error; err != nil {
+		c.Error(errs.ErrProjectNotFound)
+		return
+	}
+
+	c.JSON(http.StatusOK, types.Response{
+		Status: "success",
+		Data:   project,
+	})
+}
+
+func ProjectUpdate(c *gin.Context) {
+	var existingProject models.Project
+
+	id := c.Params.ByName("id")
+	if err := models.DB.First(&existingProject, "Id = ?", id).Error; err != nil {
+		c.Error(errs.ErrProjectNotFound)
+		return
+	}
+
+	var updateData struct {
+		Version string `json:"version" binding:"required"`
+	}
+	if err := c.MustBindWith(&updateData, binding.JSON); err != nil {
+		return
+	}
+
+	// DB check
+	if existingProject.Version == updateData.Version {
+		c.Error(errs.ErrProjectVersionConflict)
+		return
+	}
+	existingProject.Version = updateData.Version
+
+	if err := ExtractSpidersFromSource(&existingProject); err != nil {
+		c.Error(err)
+		return
+	}
+
+	models.DB.Save(&existingProject)
+	c.JSON(http.StatusOK, types.Response{
+		Status:  "success",
+		Message: "updated",
+	})
+}
+
+func ProjectDelete(c *gin.Context) {
+	var existingProject models.Project
+
+	id := c.Params.ByName("id")
+	if err := models.DB.First(&existingProject, "Id = ?", id).Error; err != nil {
+		c.Error(errs.ErrProjectNotFound)
+		return
+	}
+
+	models.DB.Delete(&existingProject)
+	c.JSON(http.StatusOK, types.Response{
+		Status:  "success",
+		Message: "deleted",
 	})
 }

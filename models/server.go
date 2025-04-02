@@ -3,13 +3,13 @@ package models
 import "time"
 
 type Server struct {
-	Id        string `gorm:"primaryKey"`
-	Name      string `gorm:"unique"`
-	Address   string `gorm:"unique"`
-	HostName  string
-	Status    string
-	CPU       int
-	Memory    int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Id        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"unique" json:"name"`
+	Address   string    `gorm:"unique" json:"address"`
+	HostName  string    `json:"hostname"`
+	Status    string    `json:"status"`
+	CPU       int       `json:"cpu"`
+	Memory    int64     `json:"memory"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

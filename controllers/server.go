@@ -45,7 +45,6 @@ func ServerCreate(c *gin.Context) {
 		return
 	}
 
-	server.Id = systemInfo.ID
 	server.Name = host.Name
 	server.Address = host.Address
 	server.Status = "up"
