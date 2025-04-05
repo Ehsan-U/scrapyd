@@ -38,11 +38,10 @@ func (s StringSlice) Value() (driver.Value, error) {
 
 type Project struct {
 	Id        uint        `gorm:"primaryKey" json:"id"`
-	Name      string      `json:"name"`
-	Url       string      `json:"url"`
-	Branch    string      `json:"branch"`
+	Name      string      `json:"name" binding:"required"`
+	Url       string      `json:"url" binding:"required"`
+	Branch    string      `json:"branch" binding:"required"`
 	Spiders   StringSlice `gorm:"type:json" json:"spiders"`
-	Version   string      `json:"version"`
 	CreatedAt time.Time   `json:"created_at"`
 	UpdatedAt time.Time   `json:"updated_at"`
 }

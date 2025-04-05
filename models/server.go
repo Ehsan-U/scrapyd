@@ -4,8 +4,8 @@ import "time"
 
 type Server struct {
 	Id        uint      `gorm:"primaryKey" json:"id"`
-	Name      string    `gorm:"unique" json:"name"`
-	Address   string    `gorm:"unique" json:"address"`
+	Name      string    `gorm:"unique" json:"name" binding:"required"`
+	Address   string    `gorm:"unique" json:"address" binding:"required"`
 	HostName  string    `json:"hostname"`
 	Status    string    `json:"status"`
 	CPU       int       `json:"cpu"`

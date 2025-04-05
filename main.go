@@ -72,6 +72,13 @@ func main() {
 	router.PATCH("/projects/:id", controllers.ProjectUpdate)
 	router.DELETE("/projects/:id", controllers.ProjectDelete)
 
+	// deployments CRUD
+	router.POST("/deployments", controllers.DeploymentCreate)
+	router.GET("/deployments", controllers.DeploymentList)
+	router.GET("/deployments/:id", controllers.DeploymentGet)
+	//router.PATCH("/deployments/:id", controllers.DeploymentUpdate)
+	router.DELETE("/deployments/:id", controllers.DeploymentDelete)
+
 	if err := router.Run(":8080"); err != nil {
 		log.Fatal().Err(err).Msg("app failed to start")
 	}

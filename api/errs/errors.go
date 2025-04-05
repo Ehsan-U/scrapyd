@@ -14,6 +14,8 @@ var (
 	ErrServerNotFound         = errors.New("server not found")
 	ErrProjectNotFound        = errors.New("project not found")
 	ErrProjectVersionConflict = errors.New("version already exists")
+	ErrDeploymentConflict     = errors.New("deployment with this server/project exists")
+	ErrDeploymentNotFound     = errors.New("deployment not found")
 )
 
 var ErrStatusMap = map[error]int{
@@ -25,4 +27,6 @@ var ErrStatusMap = map[error]int{
 	ErrServerNotFound:         http.StatusNotFound,
 	ErrProjectNotFound:        http.StatusNotFound,
 	ErrProjectVersionConflict: http.StatusConflict,
+	ErrDeploymentConflict:     http.StatusConflict,
+	ErrDeploymentNotFound:     http.StatusNotFound,
 }

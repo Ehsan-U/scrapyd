@@ -15,10 +15,9 @@ import (
 )
 
 type GithubProject struct {
-	Name    string `json:"name" binding:"required"`
-	Url     string `json:"url" binding:"required"`
-	Branch  string `json:"branch"`
-	Version string `json:"version"`
+	Name   string `json:"name" binding:"required"`
+	Url    string `json:"url" binding:"required"`
+	Branch string `json:"branch"`
 }
 
 func ExtractSpidersFromSource(project *models.Project) error {
@@ -86,11 +85,6 @@ func ProjectCreate(c *gin.Context) {
 	project.Name = gProject.Name
 	project.Url = gProject.Url
 	project.Branch = gProject.Branch
-	if gProject.Version == "" {
-		project.Version = "0.0.1"
-	} else {
-		project.Version = gProject.Version
-	}
 
 	if err := ExtractSpidersFromSource(&project); err != nil {
 		c.Error(err)
@@ -118,7 +112,7 @@ func ProjectGet(c *gin.Context) {
 	var project models.Project
 
 	id := c.Params.ByName("id")
-	if err := models.DB.First(&project, "Id = ?", id).Error; err != nil {
+	if err := models.DB.First(&project, id).Error; err != nil {
 		c.Error(errs.ErrProjectNotFound)
 		return
 	}
@@ -133,24 +127,10 @@ func ProjectUpdate(c *gin.Context) {
 	var existingProject models.Project
 
 	id := c.Params.ByName("id")
-	if err := models.DB.First(&existingProject, "Id = ?", id).Error; err != nil {
+	if err := models.DB.First(&existingProject, id).Error; err != nil {
 		c.Error(errs.ErrProjectNotFound)
 		return
 	}
-
-	var updateData struct {
-		Version string `json:"version" binding:"required"`
-	}
-	if err := c.MustBindWith(&updateData, binding.JSON); err != nil {
-		return
-	}
-
-	// DB check
-	if existingProject.Version == updateData.Version {
-		c.Error(errs.ErrProjectVersionConflict)
-		return
-	}
-	existingProject.Version = updateData.Version
 
 	if err := ExtractSpidersFromSource(&existingProject); err != nil {
 		c.Error(err)
@@ -168,7 +148,7 @@ func ProjectDelete(c *gin.Context) {
 	var existingProject models.Project
 
 	id := c.Params.ByName("id")
-	if err := models.DB.First(&existingProject, "Id = ?", id).Error; err != nil {
+	if err := models.DB.First(&existingProject, id).Error; err != nil {
 		c.Error(errs.ErrProjectNotFound)
 		return
 	}

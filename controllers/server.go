@@ -10,21 +10,21 @@ import (
 	"scrapyd/services"
 )
 
-type Host struct {
+type ServerRequest struct {
 	Name    string `json:"name" binding:"required"`
 	Address string `json:"address" binding:"required"`
 }
 
 func ServerCreate(c *gin.Context) {
-	var host Host
+	var request ServerRequest
 	var server models.Server
 
-	if err := c.MustBindWith(&host, binding.JSON); err != nil {
+	if err := c.MustBindWith(&request, binding.JSON); err != nil {
 		return
 	}
 
 	// check DB
-	if err := models.DB.First(&server, "Address = ?", host.Address).Error; err == nil {
+	if err := models.DB.First(&server, "Address = ?", request.Address).Error; err == nil {
 		c.JSON(http.StatusOK, types.Response{
 			Status:  "success",
 			Message: "exists",
@@ -32,7 +32,7 @@ func ServerCreate(c *gin.Context) {
 		return
 	}
 
-	d, err := services.NewDaemon(host.Address)
+	d, err := services.NewDaemon(request.Address)
 	if err != nil {
 		c.Error(errs.ErrDaemonConnectionFailed)
 		return
@@ -45,8 +45,8 @@ func ServerCreate(c *gin.Context) {
 		return
 	}
 
-	server.Name = host.Name
-	server.Address = host.Address
+	server.Name = request.Name
+	server.Address = request.Address
 	server.Status = "up"
 	server.HostName = systemInfo.Name
 	server.CPU = systemInfo.NCPU
@@ -79,7 +79,7 @@ func ServerUpdate(c *gin.Context) {
 	var existingServer models.Server
 
 	id := c.Params.ByName("id")
-	err := models.DB.First(&existingServer, "Id = ?", id).Error
+	err := models.DB.First(&existingServer, id).Error
 	if err != nil {
 		c.Error(errs.ErrServerNotFound)
 		return
@@ -104,7 +104,7 @@ func ServerGet(c *gin.Context) {
 	var existingServer models.Server
 
 	id := c.Params.ByName("id")
-	err := models.DB.First(&existingServer, "Id = ?", id).Error
+	err := models.DB.First(&existingServer, id).Error
 	if err != nil {
 		c.Error(errs.ErrServerNotFound)
 		return
@@ -120,7 +120,7 @@ func ServerDelete(c *gin.Context) {
 	var existingServer models.Server
 
 	id := c.Params.ByName("id")
-	err := models.DB.First(&existingServer, "Id = ?", id).Error
+	err := models.DB.First(&existingServer, id).Error
 	if err != nil {
 		c.Error(errs.ErrServerNotFound)
 		return
