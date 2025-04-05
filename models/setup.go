@@ -13,7 +13,7 @@ func ConnectDatabase() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")
 	}
-	if err := db.AutoMigrate(&Project{}, &Version{}); err != nil {
+	if err := db.AutoMigrate(&Project{}, &Version{}, &Job{}, &Server{}); err != nil {
 		log.Fatal().Err(err).Msg("failed to auto migrate")
 	}
 	DB = db

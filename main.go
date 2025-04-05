@@ -67,7 +67,18 @@ func main() {
 	router.GET("/versions/:project_id", controllers.VersionList)
 	router.DELETE("/versions/:project_id/:version_id", controllers.VersionDelete)
 
-	//
+	// Jobs
+	router.POST("/jobs", controllers.JobCreate)
+	router.GET("/jobs", controllers.JobList)
+	router.GET("/jobs/:id", controllers.JobGet)
+	router.PATCH("/jobs", controllers.JobUpdate)
+	router.DELETE("/jobs/:id", controllers.JobDelete)
+
+	// Server
+	router.POST("/servers", controllers.ServerCreate)
+	router.GET("/servers", controllers.ServerList)
+	router.GET("/servers/:id", controllers.ServerGet)
+	router.DELETE("/servers/:id", controllers.ServerDelete)
 
 	if err := router.Run(":8080"); err != nil {
 		log.Fatal().Err(err).Msg("app failed to start")
