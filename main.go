@@ -36,7 +36,6 @@ func ZLogMiddleware() gin.HandlerFunc {
 				}
 			}
 		}
-
 		log.Debug().
 			Int("status", status).
 			Dur("latency", latency).
@@ -58,26 +57,17 @@ func main() {
 
 	models.ConnectDatabase()
 
-	// server CRUD
-	router.POST("/servers", controllers.ServerCreate)
-	router.GET("/servers", controllers.ServerList)
-	router.GET("/servers/:id", controllers.ServerGet)
-	router.PATCH("/servers/:id", controllers.ServerUpdate)
-	router.DELETE("/servers/:id", controllers.ServerDelete)
-
-	// project CRUD
+	// Project
 	router.POST("/projects", controllers.ProjectCreate)
 	router.GET("/projects", controllers.ProjectList)
-	router.GET("/projects/:id", controllers.ProjectGet)
-	router.PATCH("/projects/:id", controllers.ProjectUpdate)
 	router.DELETE("/projects/:id", controllers.ProjectDelete)
 
-	// deployments CRUD
-	router.POST("/deployments", controllers.DeploymentCreate)
-	router.GET("/deployments", controllers.DeploymentList)
-	router.GET("/deployments/:id", controllers.DeploymentGet)
-	//router.PATCH("/deployments/:id", controllers.DeploymentUpdate)
-	router.DELETE("/deployments/:id", controllers.DeploymentDelete)
+	// Version
+	router.POST("/versions", controllers.VersionCreate)
+	router.GET("/versions/:project_id", controllers.VersionList)
+	router.DELETE("/versions/:project_id/:version_id", controllers.VersionDelete)
+
+	//
 
 	if err := router.Run(":8080"); err != nil {
 		log.Fatal().Err(err).Msg("app failed to start")

@@ -12,10 +12,11 @@ var (
 	ErrInvalidDockerfile      = errors.New("invalid dockerfile")
 	ErrSpidersNotFound        = errors.New("spiders not found in the project")
 	ErrServerNotFound         = errors.New("server not found")
-	ErrProjectNotFound        = errors.New("project not found")
-	ErrProjectVersionConflict = errors.New("version already exists")
-	ErrDeploymentConflict     = errors.New("deployment with this server/project exists")
-	ErrDeploymentNotFound     = errors.New("deployment not found")
+
+	ErrProjectNotFound = errors.New("project not found")
+	ErrVersionConflict = errors.New("version already exists")
+	ErrVersionNotFound = errors.New("version not found")
+	ErrProjectConflict = errors.New("project already exists")
 )
 
 var ErrStatusMap = map[error]int{
@@ -25,8 +26,9 @@ var ErrStatusMap = map[error]int{
 	ErrInvalidDockerfile:      http.StatusUnprocessableEntity,
 	ErrSpidersNotFound:        http.StatusUnprocessableEntity,
 	ErrServerNotFound:         http.StatusNotFound,
-	ErrProjectNotFound:        http.StatusNotFound,
-	ErrProjectVersionConflict: http.StatusConflict,
-	ErrDeploymentConflict:     http.StatusConflict,
-	ErrDeploymentNotFound:     http.StatusNotFound,
+
+	ErrProjectNotFound: http.StatusNotFound,
+	ErrVersionConflict: http.StatusConflict,
+	ErrVersionNotFound: http.StatusNotFound,
+	ErrProjectConflict: http.StatusConflict,
 }
