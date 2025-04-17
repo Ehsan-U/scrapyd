@@ -146,3 +146,37 @@ func HandleCancelTask(ctx context.Context, t *asynq.Task) error {
 	models.DB.Save(&job)
 	return nil
 }
+
+func HandleRestartTask(ctx context.Context, t *asynq.Task) error {
+	var task Task
+	var job models.Job
+
+	err := json.Unmarshal(t.Payload(), &task)
+	if err != nil {
+		return err
+	}
+
+	if err := models.DB.Preload("Project").First(&job, "id = ?", task.ID).Error; err != nil {
+		log.Error().
+			Err(err).
+			Str("type", t.Type()).
+			Str("job", task.ID).
+			Msg("job not found")
+		return err
+	}
+
+	d, err := services.NewDaemon()
+	if err != nil {
+		return err
+	}
+	defer d.Client.Close()
+
+	contName := fmt.Sprintf("%s_%s_%s_%s", job.ID, job.ProjectID, job.VersionID, job.Spider)
+	if err := d.ContainerStart(contName); err != nil {
+		return err
+	}
+	job.Status = "running"
+
+	models.DB.Save(&job)
+	return nil
+}

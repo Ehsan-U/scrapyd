@@ -104,14 +104,20 @@ func JobUpdate(c *gin.Context) {
 		c.Error(errs.ErrJobNotFound)
 		return
 	}
-	existingJob.Status = updateData.Status
 
-	if err := tasks.NewTask("cancel:job", updateData.ID); err != nil {
-		c.Error(err)
-		return
+	if updateData.Status == "cancel" {
+		if err := tasks.NewTask("cancel:job", updateData.ID); err != nil {
+			c.Error(err)
+			return
+		}
+	}
+	if updateData.Status == "restart" {
+		if err := tasks.NewTask("restart:job", updateData.ID); err != nil {
+			c.Error(err)
+			return
+		}
 	}
 
-	models.DB.Save(&existingJob)
 	c.JSON(http.StatusOK, types.Response{
 		Status:  "success",
 		Message: "updated",

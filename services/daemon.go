@@ -161,21 +161,31 @@ func (d *Daemon) ContainerCreate(containerName string, config *container.Config)
 	return c.ID, nil
 }
 
-func (d *Daemon) ContainerStart(containerID string) error {
+func (d *Daemon) ContainerStart(containerName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err := d.Client.ContainerStart(
-		ctx,
-		containerID,
-		container.StartOptions{},
-	)
 
+	cont, err := d.FindContainerByName(containerName)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("container", containerID).
-			Msg("failed to start container")
 		return err
+	}
+
+	if cont.Status != "running" {
+		if err := d.Client.ContainerStart(
+			ctx,
+			cont.ID,
+			container.StartOptions{},
+		); err != nil {
+			log.Error().
+				Err(err).
+				Str("container", containerName).
+				Msg("failed to start container")
+			return err
+		}
+	} else {
+		log.Debug().
+			Str("container", containerName).
+			Msg("container is already running")
 	}
 
 	return nil
@@ -184,6 +194,7 @@ func (d *Daemon) ContainerStart(containerID string) error {
 func (d *Daemon) ContainerWait(containerID string, cond container.WaitCondition) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
 	statusChan, errChan := d.Client.ContainerWait(
 		ctx,
 		containerID,
@@ -204,6 +215,7 @@ func (d *Daemon) ContainerWait(containerID string, cond container.WaitCondition)
 func (d *Daemon) ContainerLogs(containerID string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
 	reader, err := d.Client.ContainerLogs(
 		ctx,
 		containerID,
@@ -228,6 +240,7 @@ func (d *Daemon) ContainerLogs(containerID string) (string, error) {
 			Msg("failed to read container logs")
 		return "", err
 	}
+
 	return stdout.String(), nil
 }
 
@@ -324,7 +337,7 @@ func (d *Daemon) SpiderList(version *models.Version) ([]string, error) {
 		_ = d.ContainerRemove(containerID)
 	}()
 
-	if err = d.ContainerStart(containerID); err != nil {
+	if err = d.ContainerStart(contName); err != nil {
 		return nil, err
 	}
 

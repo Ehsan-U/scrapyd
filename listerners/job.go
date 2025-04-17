@@ -45,6 +45,9 @@ func StartDockerEventListener(ctx context.Context) {
 						Msg("job not found")
 					continue
 				}
+				if job.Status == "cancelled" {
+					continue
+				}
 				job.Status = "finished"
 				models.DB.Save(&job)
 			}
