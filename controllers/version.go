@@ -7,6 +7,7 @@ import (
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
 	"scrapyd/models"
+	"scrapyd/tasks"
 )
 
 func VersionCreate(c *gin.Context) {
@@ -16,21 +17,23 @@ func VersionCreate(c *gin.Context) {
 	if err := c.MustBindWith(&request, binding.JSON); err != nil {
 		return
 	}
-
-	if err := models.DB.First(&models.Project{}, request.ProjectID).Error; err != nil {
+	if err := models.DB.First(&models.Project{}, "id = ?", request.ProjectID).Error; err != nil {
 		c.Error(errs.ErrProjectNotFound)
 		return
 	}
-
-	err := models.DB.First(&version, "project_id = ? AND tag = ?", request.ProjectID, request.Tag).Error
-	if err == nil {
+	if err := models.DB.First(&version, "id = ? AND project_id = ?", request.ID, request.ProjectID).Error; err == nil {
 		c.Error(errs.ErrVersionConflict)
 		return
 	}
 
+	version.ID = request.ID
 	version.ProjectID = request.ProjectID
-	version.Tag = request.Tag
 	version.Image = request.Image
+
+	if err := tasks.NewTask("inspect:version", version.ID); err != nil {
+		c.Error(err)
+		return
+	}
 
 	models.DB.Create(&version)
 	c.JSON(http.StatusCreated, types.Response{
@@ -43,7 +46,7 @@ func VersionList(c *gin.Context) {
 	var versions []models.Version
 
 	projectID := c.Params.ByName("project_id")
-	if err := models.DB.First(&models.Project{}, projectID).Error; err != nil {
+	if err := models.DB.First(&models.Project{}, "id = ?", projectID).Error; err != nil {
 		c.Error(errs.ErrProjectNotFound)
 		return
 	}
@@ -59,7 +62,7 @@ func VersionDelete(c *gin.Context) {
 	var version models.Version
 
 	projectID := c.Params.ByName("project_id")
-	if err := models.DB.First(&models.Project{}, projectID).Error; err != nil {
+	if err := models.DB.First(&models.Project{}, "id = ?", projectID).Error; err != nil {
 		c.Error(errs.ErrProjectNotFound)
 		return
 	}
@@ -70,7 +73,6 @@ func VersionDelete(c *gin.Context) {
 		return
 	}
 
-	models.DB.Delete(&version, id)
 	c.JSON(http.StatusOK, types.Response{
 		Status:  "success",
 		Message: "deleted",

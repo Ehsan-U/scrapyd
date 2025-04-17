@@ -3,10 +3,14 @@ package controllers
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/google/uuid"
 	"net/http"
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
 	"scrapyd/models"
+	"scrapyd/tasks"
+	"slices"
+	"strings"
 )
 
 func JobCreate(c *gin.Context) {
@@ -15,25 +19,45 @@ func JobCreate(c *gin.Context) {
 	if err := c.MustBindWith(&request, binding.JSON); err != nil {
 		return
 	}
-
-	if err := models.DB.First(&models.Project{}, request.ProjectID).Error; err != nil {
+	if err := models.DB.First(&models.Project{}, "id = ?", request.ProjectID).Error; err != nil {
 		c.Error(errs.ErrProjectNotFound)
 		return
 	}
-	if err := models.DB.First(&models.Version{}, request.VersionID).Error; err != nil {
+	var version models.Version
+	if err := models.DB.First(&version, "id = ?", request.VersionID).Error; err != nil {
 		c.Error(errs.ErrVersionNotFound)
 		return
 	}
+	if !slices.Contains(version.Spiders, request.Spider) {
+		c.Error(errs.ErrSpiderNotFound)
+		return
+	}
+	if request.ID != "" {
+		if err := models.DB.First(&models.Job{}, "id = ?", request.ID).Error; err == nil {
+			c.Error(errs.ErrJobConflict)
+			return
+		}
+	}
 
+	if request.ID == "" {
+		reqID, _ := uuid.NewUUID()
+		request.ID = strings.ReplaceAll(reqID.String(), "-", "")
+	}
 	job := models.Job{
+		ID:        request.ID,
 		ProjectID: request.ProjectID,
 		VersionID: request.VersionID,
 		Status:    "pending",
 		Spider:    request.Spider,
 		Setting:   request.Setting,
 	}
-	models.DB.Create(&job)
 
+	if err := tasks.NewTask("execute:job", job.ID); err != nil {
+		c.Error(err)
+		return
+	}
+
+	models.DB.Create(&job)
 	c.JSON(http.StatusCreated, types.Response{
 		Status:  "success",
 		Message: "created",
@@ -54,7 +78,7 @@ func JobGet(c *gin.Context) {
 	var job models.Job
 
 	id := c.Params.ByName("id")
-	if err := models.DB.Preload("Project").Preload("Version").First(&job, id).Error; err != nil {
+	if err := models.DB.Preload("Project").Preload("Version").First(&job, "id = ?", id).Error; err != nil {
 		c.Error(errs.ErrJobNotFound)
 		return
 	}
@@ -68,7 +92,7 @@ func JobGet(c *gin.Context) {
 func JobUpdate(c *gin.Context) {
 	var existingJob models.Job
 	var updateData struct {
-		Id     uint   `json:"id" binding:"required"`
+		ID     string `json:"id" binding:"required"`
 		Status string `json:"status" binding:"required"`
 	}
 
@@ -76,11 +100,16 @@ func JobUpdate(c *gin.Context) {
 		return
 	}
 
-	if err := models.DB.First(&existingJob, updateData.Id).Error; err != nil {
+	if err := models.DB.First(&existingJob, "id = ?", updateData.ID).Error; err != nil {
 		c.Error(errs.ErrJobNotFound)
 		return
 	}
 	existingJob.Status = updateData.Status
+
+	if err := tasks.NewTask("cancel:job", updateData.ID); err != nil {
+		c.Error(err)
+		return
+	}
 
 	models.DB.Save(&existingJob)
 	c.JSON(http.StatusOK, types.Response{
@@ -93,7 +122,7 @@ func JobDelete(c *gin.Context) {
 	var job models.Job
 
 	id := c.Params.ByName("id")
-	if err := models.DB.First(&job, id).Error; err != nil {
+	if err := models.DB.First(&job, "id = ?", id).Error; err != nil {
 		c.Error(errs.ErrJobNotFound)
 		return
 	}

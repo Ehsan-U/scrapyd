@@ -16,8 +16,7 @@ func ProjectCreate(c *gin.Context) {
 	if err := c.MustBindWith(&request, binding.JSON); err != nil {
 		return
 	}
-
-	project.Name = request.Name
+	project.ID = request.ID
 	if rows := models.DB.Create(&project).RowsAffected; rows == 0 {
 		c.Error(errs.ErrProjectConflict)
 		return
@@ -43,7 +42,7 @@ func ProjectDelete(c *gin.Context) {
 	var project models.Project
 
 	id := c.Params.ByName("id")
-	if rows := models.DB.Delete(&project, id).RowsAffected; rows == 0 {
+	if rows := models.DB.Delete(&project, "id = ?", id).RowsAffected; rows == 0 {
 		c.Error(errs.ErrProjectNotFound)
 		return
 	}

@@ -1,15 +1,21 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"net/http"
 	"os"
+	"os/signal"
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
 	"scrapyd/controllers"
+	"scrapyd/listerners"
 	"scrapyd/models"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -35,6 +41,13 @@ func ZLogMiddleware() gin.HandlerFunc {
 					}
 				}
 			}
+			// catch rogue err
+			if !c.Writer.Written() {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, types.Response{
+					Status:  "error",
+					Message: "",
+				})
+			}
 		}
 		log.Debug().
 			Int("status", status).
@@ -52,11 +65,24 @@ func main() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 	gin.DefaultWriter = zerolog.ConsoleWriter{Out: os.Stdout}
 	//gin.SetMode("release")
-	router := gin.New()
-	router.Use(ZLogMiddleware(), gin.Recovery())
-
+	var wg sync.WaitGroup
 	models.ConnectDatabase()
 
+	mainCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		listerners.StartDockerEventListener(mainCtx)
+	}()
+
+	router := gin.New()
+	router.Use(ZLogMiddleware(), gin.Recovery())
+	srv := &http.Server{
+		Addr:    ":8081",
+		Handler: router,
+	}
 	// Project
 	router.POST("/projects", controllers.ProjectCreate)
 	router.GET("/projects", controllers.ProjectList)
@@ -74,13 +100,19 @@ func main() {
 	router.PATCH("/jobs", controllers.JobUpdate)
 	router.DELETE("/jobs/:id", controllers.JobDelete)
 
-	// Server
-	router.POST("/servers", controllers.ServerCreate)
-	router.GET("/servers", controllers.ServerList)
-	router.GET("/servers/:id", controllers.ServerGet)
-	router.DELETE("/servers/:id", controllers.ServerDelete)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = srv.ListenAndServe()
+	}()
 
-	if err := router.Run(":8080"); err != nil {
-		log.Fatal().Err(err).Msg("app failed to start")
+	<-mainCtx.Done()
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("HTTP server graceful shutdown failed")
 	}
+
+	wg.Wait()
 }
