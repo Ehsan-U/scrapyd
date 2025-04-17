@@ -5,20 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/docker/cli/cli/command/image/build"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/idtools"
-	"github.com/docker/docker/pkg/jsonmessage"
+	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/moby/term"
 	"github.com/rs/zerolog/log"
 	"io"
-	"scrapyd/models"
 	"strings"
 	"time"
 )
@@ -47,102 +40,9 @@ func NewDaemon() (*Daemon, error) {
 	}, nil
 }
 
-func (d *Daemon) ImageIDByName(imageName string) (string, error) {
-	imageFilters := filters.NewArgs()
-	imageFilters.Add("reference", imageName)
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-	images, err := d.Client.ImageList(
-		ctx,
-		image.ListOptions{Filters: imageFilters},
-	)
-
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("image", imageName).
-			Msg("failed to get image id")
-		return "", err
-	}
-	if len(images) == 0 {
-		return "", nil
-	}
-
-	return images[0].ID, nil
-}
-
-func (d *Daemon) ImageRemove(imageID string) error {
-	_, err := d.Client.ImageRemove(
-		context.Background(),
-		imageID,
-		image.RemoveOptions{Force: true, PruneChildren: true},
-	)
-
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("image", imageID).
-			Msg("failed to remove image")
-		return err
-	}
-
-	return nil
-}
-
-func (d *Daemon) ImageBuild(contextDir string, Dockerfile string, projectName string) error {
-	excludes, _ := build.ReadDockerignore(contextDir)
-	buildCtx, _ := archive.TarWithOptions(
-		contextDir,
-		&archive.TarOptions{
-			ExcludePatterns: excludes,
-			ChownOpts:       &idtools.Identity{GID: 0, UID: 0},
-		},
-	)
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*360)
-	defer cancel()
-	reader, err := d.Client.ImageBuild(
-		ctx,
-		buildCtx,
-		types.ImageBuildOptions{
-			Tags:        []string{projectName},
-			ForceRemove: true,
-			Dockerfile:  Dockerfile,
-		},
-	)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("failed to build image")
-		return err
-	}
-	defer reader.Body.Close()
-
-	var buildLogs bytes.Buffer
-	fd, _ := term.GetFdInfo(io.Discard)
-	err = jsonmessage.DisplayJSONMessagesStream(reader.Body, &buildLogs, fd, false, nil)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("failed to get image build logs")
-		return err
-	}
-
-	return nil
-}
-
 func (d *Daemon) ContainerCreate(containerName string, config *container.Config) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 360*time.Second)
 	defer cancel()
-
-	if cont, _ := d.FindContainerByName(containerName); cont != nil {
-		if cont.Status != "running" {
-			if err := d.ContainerRemove(cont.ID); err != nil {
-				return "", err
-			}
-		}
-	}
 
 	c, err := d.Client.ContainerCreate(
 		ctx,
@@ -161,31 +61,20 @@ func (d *Daemon) ContainerCreate(containerName string, config *container.Config)
 	return c.ID, nil
 }
 
-func (d *Daemon) ContainerStart(containerName string) error {
+func (d *Daemon) ContainerStart(containerID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cont, err := d.FindContainerByName(containerName)
-	if err != nil {
+	if err := d.Client.ContainerStart(
+		ctx,
+		containerID,
+		container.StartOptions{},
+	); err != nil {
+		log.Error().
+			Err(err).
+			Str("container", containerID).
+			Msg("failed to start container")
 		return err
-	}
-
-	if cont.Status != "running" {
-		if err := d.Client.ContainerStart(
-			ctx,
-			cont.ID,
-			container.StartOptions{},
-		); err != nil {
-			log.Error().
-				Err(err).
-				Str("container", containerName).
-				Msg("failed to start container")
-			return err
-		}
-	} else {
-		log.Debug().
-			Str("container", containerName).
-			Msg("container is already running")
 	}
 
 	return nil
@@ -212,10 +101,7 @@ func (d *Daemon) ContainerWait(containerID string, cond container.WaitCondition)
 	return -1, errors.New("timeout while waiting for container wait api call")
 }
 
-func (d *Daemon) ContainerLogs(containerID string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func (d *Daemon) ContainerLogs(ctx context.Context, containerID string) (io.ReadCloser, error) {
 	reader, err := d.Client.ContainerLogs(
 		ctx,
 		containerID,
@@ -229,19 +115,10 @@ func (d *Daemon) ContainerLogs(containerID string) (string, error) {
 			Err(err).
 			Str("container", containerID).
 			Msg("failed to get container logs")
-		return "", err
-	}
-	defer reader.Close()
-	var stdout bytes.Buffer
-	if _, err = stdcopy.StdCopy(&stdout, io.Discard, reader); err != nil {
-		log.Error().
-			Err(err).
-			Str("container", containerID).
-			Msg("failed to read container logs")
-		return "", err
+		return nil, err
 	}
 
-	return stdout.String(), nil
+	return reader, nil
 }
 
 func (d *Daemon) ContainerRemove(containerID string) error {
@@ -267,22 +144,17 @@ func (d *Daemon) ContainerRemove(containerID string) error {
 	return nil
 }
 
-func (d *Daemon) ContainerStop(containerName string) error {
+func (d *Daemon) ContainerStop(containerID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	cont, err := d.FindContainerByName(containerName)
-	if err != nil {
-		return err
-	}
-
 	timeout := 15
-	if err := d.Client.ContainerStop(ctx, cont.ID, container.StopOptions{
+	if err := d.Client.ContainerStop(ctx, containerID, container.StopOptions{
 		Timeout: &timeout,
 	}); err != nil {
 		log.Error().
 			Err(err).
-			Str("container", cont.ID).
+			Str("container", containerID).
 			Msg("failed to stop the container")
 		return err
 	}
@@ -320,12 +192,12 @@ func (d *Daemon) FindContainerByName(containerName string) (*container.Summary, 
 	return &containers[0], nil
 }
 
-func (d *Daemon) SpiderList(version *models.Version) ([]string, error) {
+func (d *Daemon) SpiderList(Image string) ([]string, error) {
 	var spiders []string
 
-	contName := fmt.Sprintf("%s_%s_tempcontainer", version.ProjectID, version.ID)
+	contName := namesgenerator.GetRandomName(1)
 	containerID, err := d.ContainerCreate(contName, &container.Config{
-		Image:      version.Image,
+		Image:      Image,
 		Entrypoint: []string{"scrapy"},
 		Cmd:        []string{"list"},
 	})
@@ -337,7 +209,7 @@ func (d *Daemon) SpiderList(version *models.Version) ([]string, error) {
 		_ = d.ContainerRemove(containerID)
 	}()
 
-	if err = d.ContainerStart(contName); err != nil {
+	if err = d.ContainerStart(containerID); err != nil {
 		return nil, err
 	}
 
@@ -346,16 +218,29 @@ func (d *Daemon) SpiderList(version *models.Version) ([]string, error) {
 		return nil, err
 	}
 	if exitCode == 0 {
-		stdout, err := d.ContainerLogs(containerID)
-		if err != nil || stdout == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		reader, err := d.ContainerLogs(ctx, containerID)
+		defer reader.Close()
+
+		var stdout bytes.Buffer
+		if _, err = stdcopy.StdCopy(&stdout, io.Discard, reader); err != nil {
+			log.Error().
+				Err(err).
+				Str("container", containerID).
+				Msg("failed to read container logs")
 			return nil, err
 		}
-		for _, spider := range strings.Split(stdout, "\n") {
+		logs := stdout.String()
+
+		if logs == "" {
+			return nil, err
+		}
+		for _, spider := range strings.Split(logs, "\n") {
 			if strings.TrimSpace(spider) != "" {
 				spiders = append(spiders, spider)
 			}
 		}
-
 		return spiders, nil
 	}
 

@@ -99,6 +99,7 @@ func main() {
 	router.GET("/jobs/:id", controllers.JobGet)
 	router.PATCH("/jobs", controllers.JobUpdate)
 	router.DELETE("/jobs/:id", controllers.JobDelete)
+	router.GET("/jobs/:id/logs", controllers.JobLogStream)
 
 	wg.Add(1)
 	go func() {

@@ -1,16 +1,24 @@
 package controllers
 
 import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
+	"io"
 	"net/http"
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
 	"scrapyd/models"
+	"scrapyd/services"
 	"scrapyd/tasks"
 	"slices"
 	"strings"
+	"time"
 )
 
 func JobCreate(c *gin.Context) {
@@ -138,4 +146,75 @@ func JobDelete(c *gin.Context) {
 		Status:  "success",
 		Message: "deleted",
 	})
+}
+
+func JobLogStream(c *gin.Context) {
+	var job models.Job
+
+	id := c.Params.ByName("id")
+	if err := models.DB.First(&job, "id = ?", id).Error; err != nil {
+		c.Error(errs.ErrJobNotFound)
+		return
+	}
+
+	d, err := services.NewDaemon()
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	contName := fmt.Sprintf("%s_%s_%s_%s", job.ID, job.ProjectID, job.VersionID, job.Spider)
+	cont, err := d.FindContainerByName(contName)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	reqCtx := c.Request.Context()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	reader, err := d.ContainerLogs(ctx, cont.ID)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	defer reader.Close()
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		log.Debug().Msg("writer does not support flushing")
+		return
+	}
+
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		select {
+		case <-reqCtx.Done():
+			log.Debug().Msgf("Client disconnected for job %s logs. Stopping stream.", job.ID)
+			return
+		default:
+			_, err := fmt.Fprintf(c.Writer, "%s", scanner.Text())
+			if err != nil {
+				log.Error().Err(err).Msgf("Error writing to client for job %s", job.ID)
+				return
+			}
+			flusher.Flush()
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		if !(errors.Is(err, context.Canceled) || errors.Is(err, io.EOF)) {
+			log.Printf("Error reading log stream for job %s: %v", job.ID, err)
+		} else if errors.Is(err, io.EOF) {
+			fmt.Fprintf(c.Writer, "event: stream_end\ndata: Log stream ended.\n\n")
+			flusher.Flush()
+		}
+	}
+	log.Printf("Finished streaming logs for job: %s", job.ID)
 }

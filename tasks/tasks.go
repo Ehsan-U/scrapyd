@@ -103,7 +103,7 @@ func HandleInspectTask(ctx context.Context, t *asynq.Task) error {
 	}
 	defer d.Client.Close()
 
-	spiders, err := d.SpiderList(&version)
+	spiders, err := d.SpiderList(version.Image)
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,8 @@ func HandleCancelTask(ctx context.Context, t *asynq.Task) error {
 	defer d.Client.Close()
 
 	contName := fmt.Sprintf("%s_%s_%s_%s", job.ID, job.ProjectID, job.VersionID, job.Spider)
-	if err := d.ContainerStop(contName); err != nil {
+	cont, _ := d.FindContainerByName(contName)
+	if err := d.ContainerStop(cont.ID); err != nil {
 		return err
 	}
 	job.Status = "cancelled"
@@ -172,7 +173,8 @@ func HandleRestartTask(ctx context.Context, t *asynq.Task) error {
 	defer d.Client.Close()
 
 	contName := fmt.Sprintf("%s_%s_%s_%s", job.ID, job.ProjectID, job.VersionID, job.Spider)
-	if err := d.ContainerStart(contName); err != nil {
+	cont, _ := d.FindContainerByName(contName)
+	if err := d.ContainerStart(cont.ID); err != nil {
 		return err
 	}
 	job.Status = "running"
