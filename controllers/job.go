@@ -3,13 +3,11 @@ package controllers
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"io"
 	"net/http"
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
@@ -199,22 +197,9 @@ func JobLogStream(c *gin.Context) {
 			log.Debug().Msgf("Client disconnected for job %s logs. Stopping stream.", job.ID)
 			return
 		default:
-			_, err := fmt.Fprintf(c.Writer, "%s", scanner.Text())
-			if err != nil {
-				log.Error().Err(err).Msgf("Error writing to client for job %s", job.ID)
-				return
-			}
+			fmt.Fprintf(c.Writer, "%s", scanner.Text())
 			flusher.Flush()
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		if !(errors.Is(err, context.Canceled) || errors.Is(err, io.EOF)) {
-			log.Printf("Error reading log stream for job %s: %v", job.ID, err)
-		} else if errors.Is(err, io.EOF) {
-			fmt.Fprintf(c.Writer, "event: stream_end\ndata: Log stream ended.\n\n")
-			flusher.Flush()
-		}
-	}
-	log.Printf("Finished streaming logs for job: %s", job.ID)
 }
