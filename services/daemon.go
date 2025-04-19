@@ -47,7 +47,17 @@ func (d *Daemon) ContainerCreate(containerName string, config *container.Config)
 	c, err := d.Client.ContainerCreate(
 		ctx,
 		config,
-		nil, nil, nil,
+		&container.HostConfig{
+			RestartPolicy: container.RestartPolicy{Name: "unless-stopped"},
+			LogConfig: container.LogConfig{
+				Type: "json-file",
+				Config: map[string]string{
+					"max-size": "100mb",
+					"max-file": "3",
+				},
+			},
+		},
+		nil, nil,
 		containerName,
 	)
 	if err != nil {

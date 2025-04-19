@@ -1,13 +1,12 @@
 package controllers
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 	"net/http"
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
@@ -168,8 +167,6 @@ func JobLogStream(c *gin.Context) {
 		return
 	}
 
-	reqCtx := c.Request.Context()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	reader, err := d.ContainerLogs(ctx, cont.ID)
@@ -179,27 +176,5 @@ func JobLogStream(c *gin.Context) {
 	}
 	defer reader.Close()
 
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		log.Debug().Msg("writer does not support flushing")
-		return
-	}
-
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		select {
-		case <-reqCtx.Done():
-			log.Debug().Msgf("Client disconnected for job %s logs. Stopping stream.", job.ID)
-			return
-		default:
-			fmt.Fprintf(c.Writer, "%s", scanner.Text())
-			flusher.Flush()
-		}
-	}
-
+	stdcopy.StdCopy(c.Writer, c.Writer, reader)
 }
