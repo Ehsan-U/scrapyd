@@ -111,13 +111,14 @@ func (d *Daemon) ContainerWait(containerID string, cond container.WaitCondition)
 	return -1, errors.New("timeout while waiting for container wait api call")
 }
 
-func (d *Daemon) ContainerLogs(ctx context.Context, containerID string) (io.ReadCloser, error) {
+func (d *Daemon) ContainerLogs(ctx context.Context, containerID string, follow bool) (io.ReadCloser, error) {
 	reader, err := d.Client.ContainerLogs(
 		ctx,
 		containerID,
 		container.LogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
+			Follow:     follow,
 		},
 	)
 	if err != nil {
@@ -230,7 +231,7 @@ func (d *Daemon) SpiderList(Image string) ([]string, error) {
 	if exitCode == 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		reader, err := d.ContainerLogs(ctx, containerID)
+		reader, err := d.ContainerLogs(ctx, containerID, false)
 		defer reader.Close()
 
 		var stdout bytes.Buffer

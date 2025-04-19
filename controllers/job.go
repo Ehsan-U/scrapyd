@@ -1,12 +1,12 @@
 package controllers
 
 import (
-	"context"
 	"fmt"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/google/uuid"
+	"io"
 	"net/http"
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
@@ -15,8 +15,20 @@ import (
 	"scrapyd/tasks"
 	"slices"
 	"strings"
-	"time"
 )
+
+type flushingWriter struct {
+	writer  io.Writer
+	flusher http.Flusher
+}
+
+func (fw *flushingWriter) Write(p []byte) (int, error) {
+	n, err := fw.writer.Write(p)
+	if err == nil {
+		fw.flusher.Flush()
+	}
+	return n, err
+}
 
 func JobCreate(c *gin.Context) {
 	var request types.JobRequest
@@ -167,14 +179,16 @@ func JobLogStream(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	reader, err := d.ContainerLogs(ctx, cont.ID)
+	reqCtx := c.Request.Context()
+	reader, err := d.ContainerLogs(reqCtx, cont.ID, true)
 	if err != nil {
 		c.Error(err)
 		return
 	}
 	defer reader.Close()
 
-	stdcopy.StdCopy(c.Writer, c.Writer, reader)
+	flusher, _ := c.Writer.(http.Flusher)
+	fw := &flushingWriter{writer: c.Writer, flusher: flusher}
+
+	stdcopy.StdCopy(fw, fw, reader)
 }
