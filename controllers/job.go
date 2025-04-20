@@ -150,6 +150,11 @@ func JobDelete(c *gin.Context) {
 		return
 	}
 
+	if err := tasks.NewTask("delete:job", job.ID); err != nil {
+		c.Error(err)
+		return
+	}
+
 	models.DB.Delete(&job)
 	c.JSON(http.StatusOK, types.Response{
 		Status:  "success",

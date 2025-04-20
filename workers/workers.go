@@ -20,6 +20,7 @@ func main() {
 	mux.HandleFunc("execute:job", tasks.HandleJobTask)
 	mux.HandleFunc("cancel:job", tasks.HandleCancelTask)
 	mux.HandleFunc("restart:job", tasks.HandleRestartTask)
+	mux.HandleFunc("delete:job", tasks.HandleDeleteTask)
 	mux.HandleFunc("inspect:version", tasks.HandleInspectTask)
 
 	if err := srv.Run(mux); err != nil {
