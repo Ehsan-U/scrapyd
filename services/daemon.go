@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/system"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -38,6 +39,18 @@ func NewDaemon() (*Daemon, error) {
 	return &Daemon{
 		Client: c,
 	}, nil
+}
+
+func (d *Daemon) GetSystemInfo() (*system.Info, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	info, err := d.Client.Info(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error while getting system info: %w", err)
+	}
+
+	return &info, nil
 }
 
 func (d *Daemon) ContainerCreate(containerName string, config *container.Config) (string, error) {

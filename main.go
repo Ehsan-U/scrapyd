@@ -84,22 +84,25 @@ func main() {
 		Handler: router,
 	}
 	// Project
-	router.POST("/projects", controllers.ProjectCreate)
-	router.GET("/projects", controllers.ProjectList)
-	router.DELETE("/projects/:id", controllers.ProjectDelete)
+	router.POST("/projects", controllers.ProjectCreate)       // AddVersion
+	router.GET("/projects", controllers.ProjectList)          // ListProjects
+	router.DELETE("/projects/:id", controllers.ProjectDelete) // DelProject
 
 	// Version
-	router.POST("/versions", controllers.VersionCreate)
-	router.GET("/versions/:project_id", controllers.VersionList)
-	router.DELETE("/versions/:project_id/:version_id", controllers.VersionDelete)
+	router.POST("/versions", controllers.VersionCreate)                           // AddVersion
+	router.GET("/versions/:project_id", controllers.VersionList)                  // ListVersions ListSpiders
+	router.DELETE("/versions/:project_id/:version_id", controllers.VersionDelete) // DelVersion
 
 	// Jobs
-	router.POST("/jobs", controllers.JobCreate)
-	router.GET("/jobs", controllers.JobList)
-	router.GET("/jobs/:id", controllers.JobGet)
-	router.PATCH("/jobs", controllers.JobUpdate)
+	router.POST("/jobs", controllers.JobCreate)  // Schedule
+	router.GET("/jobs", controllers.JobList)     // ListJobs
+	router.GET("/jobs/:id", controllers.JobGet)  // Status
+	router.PATCH("/jobs", controllers.JobUpdate) // Cancel
 	router.DELETE("/jobs/:id", controllers.JobDelete)
 	router.GET("/jobs/:id/logs", controllers.JobLogStream)
+
+	// miscellaneous
+	router.GET("/daemonstatus", controllers.DaemonStatus) // DaemonStatus
 
 	wg.Add(1)
 	go func() {
