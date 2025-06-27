@@ -1,18 +1,22 @@
 package services
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/system"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/rs/zerolog/log"
 	"io"
+	"scrapyd/api/errs"
 	"strings"
 	"time"
 )
@@ -41,18 +45,6 @@ func NewDaemon() (*Daemon, error) {
 	}, nil
 }
 
-func (d *Daemon) GetSystemInfo() (*system.Info, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	info, err := d.Client.Info(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error while getting system info: %w", err)
-	}
-
-	return &info, nil
-}
-
 func (d *Daemon) ContainerCreate(containerName string, config *container.Config) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 360*time.Second)
 	defer cancel()
@@ -61,7 +53,7 @@ func (d *Daemon) ContainerCreate(containerName string, config *container.Config)
 		ctx,
 		config,
 		&container.HostConfig{
-			RestartPolicy: container.RestartPolicy{Name: "unless-stopped"},
+			RestartPolicy: container.RestartPolicy{Name: "no"},
 			LogConfig: container.LogConfig{
 				Type: "json-file",
 				Config: map[string]string{
@@ -187,11 +179,12 @@ func (d *Daemon) ContainerStop(containerID string) error {
 }
 
 func (d *Daemon) FindContainerByName(containerName string) (*container.Summary, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
 	conFilters := filters.NewArgs()
 	conFilters.Add("name", fmt.Sprintf("/%s", containerName))
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
 	containers, err := d.Client.ContainerList(
 		ctx,
 		container.ListOptions{
@@ -213,15 +206,105 @@ func (d *Daemon) FindContainerByName(containerName string) (*container.Summary, 
 		return nil, errors.New("no container found")
 	}
 
-	return &containers[0], nil
+	result := containers[0]
+	return &result, nil
 }
 
-func (d *Daemon) SpiderList(Image string) ([]string, error) {
+func (d *Daemon) FindContainersByImageName(imageName string) ([]container.Summary, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	imgFilters := filters.NewArgs()
+	imgFilters.Add("ancestor", imageName)
+
+	containers, err := d.Client.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: imgFilters,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("image", imageName).
+			Msg("failed to list containers by image name")
+		return nil, err
+	}
+
+	if len(containers) == 0 {
+		log.Debug().
+			Str("image", imageName).
+			Msg("no container found")
+		return nil, errors.New("no container found")
+	}
+
+	return containers, nil
+}
+
+func (d *Daemon) ImageLoad(reader io.Reader) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	loadResponse, err := d.Client.ImageLoad(ctx, reader)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("failed to load image")
+		return "", err
+	}
+	defer loadResponse.Body.Close()
+
+	type Line struct {
+		Stream string `json:"stream"` // stream is key in each line from docker response
+	}
+
+	scanner := bufio.NewScanner(loadResponse.Body)
+	for scanner.Scan() {
+		var line Line
+		json.Unmarshal(scanner.Bytes(), &line)
+		if strings.HasPrefix(line.Stream, "Loaded image:") {
+			imageName := strings.TrimSpace(strings.TrimPrefix(line.Stream, "Loaded image:"))
+			return imageName, nil
+		}
+	}
+
+	return "", errs.ErrVersionImageTarInvalid
+}
+
+func (d *Daemon) ImageRemove(imageName string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	// find all running containers using image
+	containers, err := d.FindContainersByImageName(imageName)
+	if err != nil {
+		return err
+	}
+
+	for _, con := range containers {
+		if err := d.ContainerStop(con.ID); err != nil {
+			return err
+		}
+		if err := d.ContainerRemove(con.ID); err != nil {
+			return err
+		}
+	}
+
+	_, err = d.Client.ImageRemove(ctx, imageName, image.RemoveOptions{
+		Force:         true,
+		PruneChildren: true,
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *Daemon) SpiderList(imageName string) ([]string, error) {
 	var spiders []string
 
 	contName := namesgenerator.GetRandomName(1)
 	containerID, err := d.ContainerCreate(contName, &container.Config{
-		Image:      Image,
+		Image:      imageName,
 		Entrypoint: []string{"scrapy"},
 		Cmd:        []string{"list"},
 	})
@@ -269,4 +352,36 @@ func (d *Daemon) SpiderList(Image string) ([]string, error) {
 	}
 
 	return spiders, nil
+}
+
+func (d *Daemon) GetSystemInfo() (*system.Info, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	info, err := d.Client.Info(ctx)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("failed to get system info")
+		return nil, err
+	}
+
+	return &info, nil
+}
+
+////////////////////
+
+func DaemonStatus() (*system.Info, error) {
+	d, err := NewDaemon()
+	if err != nil {
+		return nil, err
+	}
+	defer d.Client.Close()
+
+	info, err := d.GetSystemInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	return info, nil
 }

@@ -9,4 +9,6 @@ type Version struct {
 	ProjectID string    `json:"project_id" gorm:"not null"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	Jobs []Job `json:"jobs,omitempty" gorm:"foreignKey:VersionID;constraint:OnDelete:CASCADE;"`
 }

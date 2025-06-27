@@ -28,7 +28,7 @@ func ZLogMiddleware() gin.HandlerFunc {
 
 		if len(c.Errors) != 0 {
 			err := c.Errors.Last().Err
-			log.Error().Err(err).Msg("")
+			//log.Error().Err(err).Msg("")  !!!
 
 			if !c.Writer.Written() {
 				for knownErr, statusCode := range errs.ErrStatusMap {

@@ -7,6 +7,7 @@ import (
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
 	"scrapyd/models"
+	"scrapyd/services"
 )
 
 func ProjectCreate(c *gin.Context) {
@@ -42,11 +43,19 @@ func ProjectDelete(c *gin.Context) {
 	var project models.Project
 
 	id := c.Params.ByName("id")
-	if rows := models.DB.Delete(&project, "id = ?", id).RowsAffected; rows == 0 {
+	if err := models.DB.Preload("Versions").First(&project, "id = ?", id).Error; err != nil {
 		c.Error(errs.ErrProjectNotFound)
 		return
 	}
 
+	// cleanup related stuff like version
+	err := services.ProjectCleanup(&project)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	models.DB.Delete(&project, "id = ?", id)
 	c.JSON(http.StatusOK, types.Response{
 		Status:  "success",
 		Message: "deleted",

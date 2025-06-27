@@ -9,13 +9,7 @@ import (
 )
 
 func DaemonStatus(c *gin.Context) {
-	d, err := services.NewDaemon()
-	if err != nil {
-		c.Error(err)
-		return
-	}
-
-	info, err := d.GetSystemInfo()
+	info, err := services.DaemonStatus()
 	if err != nil {
 		c.Error(err)
 		return

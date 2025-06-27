@@ -9,7 +9,9 @@ import (
 var DB *gorm.DB
 
 func ConnectDatabase() {
-	db, err := gorm.Open(sqlite.Open("test.db"), &gorm.Config{})
+	dsn := "my_database.db?_foreign_keys=on"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	//db, err := gorm.Open(sqlite.Open("test.db"), &gorm.Config{})
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")
 	}

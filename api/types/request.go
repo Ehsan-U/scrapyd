@@ -5,9 +5,8 @@ type ProjectRequest struct {
 }
 
 type VersionRequest struct {
-	ID        string `json:"id" binding:"required"`
-	ProjectID string `json:"project_id" binding:"required"`
-	Image     string `json:"image" binding:"required"`
+	ID        string `form:"id" json:"id" binding:"required"`
+	ProjectID string `form:"project_id" json:"project_id" binding:"required"`
 }
 
 type JobRequest struct {

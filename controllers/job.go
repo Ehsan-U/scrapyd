@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"fmt"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -150,6 +149,12 @@ func JobDelete(c *gin.Context) {
 		return
 	}
 
+	// cleanup the related stuff like container
+	if err := services.JobCleanup(&job); err != nil {
+		c.Error(err)
+		return
+	}
+
 	models.DB.Delete(&job)
 	c.JSON(http.StatusOK, types.Response{
 		Status:  "success",
@@ -166,21 +171,8 @@ func JobLogStream(c *gin.Context) {
 		return
 	}
 
-	d, err := services.NewDaemon()
-	if err != nil {
-		c.Error(err)
-		return
-	}
-
-	contName := fmt.Sprintf("%s_%s_%s_%s", job.ID, job.ProjectID, job.VersionID, job.Spider)
-	cont, err := d.FindContainerByName(contName)
-	if err != nil {
-		c.Error(err)
-		return
-	}
-
 	reqCtx := c.Request.Context()
-	reader, err := d.ContainerLogs(reqCtx, cont.ID, true)
+	reader, err := services.JobLogReader(reqCtx, &job)
 	if err != nil {
 		c.Error(err)
 		return

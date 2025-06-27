@@ -2,11 +2,11 @@ package controllers
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 	"net/http"
 	"scrapyd/api/errs"
 	"scrapyd/api/types"
 	"scrapyd/models"
+	"scrapyd/services"
 	"scrapyd/tasks"
 )
 
@@ -14,7 +14,7 @@ func VersionCreate(c *gin.Context) {
 	var request types.VersionRequest
 	var version models.Version
 
-	if err := c.MustBindWith(&request, binding.JSON); err != nil {
+	if err := c.ShouldBind(&request); err != nil {
 		return
 	}
 	if err := models.DB.First(&models.Project{}, "id = ?", request.ProjectID).Error; err != nil {
@@ -26,9 +26,28 @@ func VersionCreate(c *gin.Context) {
 		return
 	}
 
+	imageTar, err := c.FormFile("image_tar")
+	if err != nil {
+		c.Error(errs.ErrVersionImageTarNotFound)
+		return
+	}
+
+	file, err := imageTar.Open()
+	if err != nil {
+		c.Error(errs.ErrVersionImageTarInvalid)
+		return
+	}
+	defer file.Close()
+
+	imageName := services.VersionInit(file)
+	if imageName == "" {
+		c.Error(errs.ErrVersionImageTarInvalid)
+		return
+	}
+
 	version.ID = request.ID
 	version.ProjectID = request.ProjectID
-	version.Image = request.Image
+	version.Image = imageName
 
 	if err := tasks.NewTask("inspect:version", version.ID); err != nil {
 		c.Error(err)
@@ -68,8 +87,19 @@ func VersionDelete(c *gin.Context) {
 	}
 
 	id := c.Params.ByName("version_id")
-	if rows := models.DB.Delete(&version, "id = ? AND project_id = ?", id, projectID).RowsAffected; rows == 0 {
+	if err := models.DB.First(&version, "id = ? AND project_id = ?", id, projectID).Error; err != nil {
 		c.Error(errs.ErrVersionNotFound)
+		return
+	}
+
+	// cleanup the related stuff like image
+	if err := services.VersionCleanup(&version); err != nil {
+		c.Error(err)
+		return
+	}
+
+	if err := models.DB.Delete(&version).Error; err != nil {
+		c.Error(err)
 		return
 	}
 
